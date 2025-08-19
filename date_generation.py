@@ -149,4 +149,4 @@ def get_labels():
                         pickle.dump(seg_label, f2)
 
 
-get_labels()
+# get_labels()
