@@ -149,4 +149,5 @@ def get_labels():
                         pickle.dump(seg_label, f2)
 
 
-# get_labels()
+if __name__ == "__main__":
+    get_labels()
