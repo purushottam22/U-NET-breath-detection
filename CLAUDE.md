@@ -24,7 +24,7 @@ pip install -r requirements.txt
 python date_generation.py
 ```
 
-Reads WAV files from `breathing/HF_Lung_V1-dataset/test/` and labels from `breathing/label.csv`. Outputs pickle files to `output/filtered_500/3_split/signal/` and `output/filtered_500/3_split/segmented_label/`.
+Reads WAV files and per-file label TXT files from `train/` and `test/` directories at the repo root. Label files use the format `TYPE HH:MM:SS.mmm HH:MM:SS.mmm` (types: `I`=inhalation, `E`=exhalation; `D` and `Rhonchi` are skipped). Outputs pickle files to `output/filtered_500/3_split/signal/` and `output/filtered_500/3_split/segmented_label/`. Output directories are created automatically.
 
 ### Step 2 — Training
 
