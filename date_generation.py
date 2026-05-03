@@ -1,11 +1,9 @@
 import os
-import pandas as pd
-from scipy.io import wavfile
-from scipy.signal import butter, filtfilt
-from tqdm import tqdm
 import numpy as np
 import pickle
-from scipy.signal import decimate
+from scipy.io import wavfile
+from scipy.signal import butter, filtfilt, decimate
+from tqdm import tqdm
 
 
 def downsample(signal):
@@ -41,8 +39,6 @@ def buttersmooth(signal):
 
 
 def create_segmentaion(data, inhalation_times, exhalation_times, sample_rate=500):
-    # Parameters
-
     total_samples = len(data)
 
     # 1D target label array initialized to 0 (background)
@@ -62,91 +58,92 @@ def create_segmentaion(data, inhalation_times, exhalation_times, sample_rate=500
     return target
 
 
-def get_st_end_time(file_name, label):
-    ans, tmp_dic = [], {}
-    tmp_dic["I"] = []
-    tmp_dic["E"] = []
-    inhale_count, exhale_count = 0, 0
-    for i in range(len(label)):
-        if label.iloc[i]["name"] == file_name:
-            if label.iloc[i]["type"] == 'I':
-                start, end = label.iloc[i]["start"], label.iloc[i]["end"]
-                start = float(start.split(":")[-1])
-                end = float(end.split(":")[-1])
-                tmp_dic['I'].append([start, end])
-                inhale_count+=1
+def parse_time(time_str):
+    """Convert HH:MM:SS.mmm timestamp to total seconds."""
+    parts = time_str.split(":")
+    hours = float(parts[0])
+    minutes = float(parts[1])
+    seconds = float(parts[2])
+    return hours * 3600 + minutes * 60 + seconds
 
-            elif label.iloc[i]["type"] == 'E':
-                start, end = label.iloc[i]["start"], label.iloc[i]["end"]
-                start = float(start.split(":")[-1])
-                end = float(end.split(":")[-1])
-                tmp_dic['E'].append([start, end])
-                exhale_count += 1
 
-    if inhale_count == exhale_count:
-        return tmp_dic
-    else:
-        return {}
+def parse_label_file(label_path):
+    """
+    Parse a per-recording label TXT file with format: TYPE START END
+    Keeps only I (inhalation) and E (exhalation) lines.
+    Skips D (duplicate marker) and Rhonchi (adventitious sound) lines.
+    Returns dict: {'I': [[start, end], ...], 'E': [[start, end], ...]}
+    """
+    inhalations = []
+    exhalations = []
+    with open(label_path, 'r') as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) != 3:
+                continue
+            label_type, start_str, end_str = parts
+            if label_type == 'I':
+                inhalations.append([parse_time(start_str), parse_time(end_str)])
+            elif label_type == 'E':
+                exhalations.append([parse_time(start_str), parse_time(end_str)])
+    return {'I': inhalations, 'E': exhalations}
+
+
+def process_directory(sound_dir, signal_output_path, segment_label_output_path):
+    """Process all WAV files in a directory, saving preprocessed segments."""
+    wav_files = sorted([f for f in os.listdir(sound_dir) if f.endswith('.wav')])
+
+    for wav_file in tqdm(wav_files, desc=f"Processing {sound_dir}"):
+        name = wav_file[:-4]  # strip .wav
+        label_path = os.path.join(sound_dir, name + "_label.txt")
+
+        if not os.path.exists(label_path):
+            continue
+
+        labels = parse_label_file(label_path)
+
+        if len(labels['I']) == 0 or len(labels['E']) == 0:
+            continue
+
+        sound_path = os.path.join(sound_dir, wav_file)
+        sample_rate, data = wavfile.read(sound_path)
+
+        normalized_data = buttersmooth(data)
+        segment_label = create_segmentaion(normalized_data, labels['I'], labels['E'])
+
+        # Segment size
+        segment_len = 3750  # 7.5 sec at 500 Hz
+        stride = 1875       # 3.75 sec shift (50% overlap)
+
+        # Create and save three segments
+        for idx in range(3):
+            start = idx * stride
+            end = start + segment_len
+
+            if end <= len(normalized_data):
+                seg_data = normalized_data[start:end]
+                seg_label = segment_label[start:end]
+
+                file_prefix = name + f"_part{idx + 1}"
+
+                with open(os.path.join(signal_output_path, file_prefix + "_data.pkl"), 'wb') as f1:
+                    pickle.dump(seg_data, f1)
+
+                with open(os.path.join(segment_label_output_path, file_prefix + "_label.pkl"), 'wb') as f2:
+                    pickle.dump(seg_label, f2)
 
 
 def get_labels():
-    label = pd.read_csv(r"breathing\label.csv")
-
-    sound_dir = r"breathing\HF_Lung_V1-dataset\test"
-
     signal_output_path = r"output\filtered_500\3_split\signal"
     segment_label_output_path = r"output\filtered_500\3_split\segmented_label"
 
-    names = label["name"]
+    os.makedirs(signal_output_path, exist_ok=True)
+    os.makedirs(segment_label_output_path, exist_ok=True)
 
-    label_dic = []
-    count, counti, counte = 0, 0, 0
-
-    for j in tqdm(names):
-        if j in label_dic:
-            continue
-        label_dic.append(j)
-        labels_time = get_st_end_time(j, label)
-        if len(labels_time) == 0:
-            continue
-        if len(labels_time["I"]) > 0 and len(labels_time["E"]) > 0:
-            # print(j)
-            counti += len(labels_time["I"])
-            counte += len(labels_time["E"])
-            count += 1
-            name = "_".join(j.split("_")[0:-1])
-
-            sound_file_name = name + ".wav"
-            # Load the WAV file
-
-            sound_path = os.path.join(sound_dir, sound_file_name)
-
-            sample_rate, data = wavfile.read(sound_path)
-
-            normalized_data = buttersmooth(data)
-
-            segment_label = create_segmentaion(normalized_data, labels_time["I"], labels_time["E"])
-
-            # Segment size
-            segment_len = 3750  # 7.5 sec at 500 Hz
-            stride = 1875  # 3.75 sec shift (50% overlap)
-
-            # Create and save three segments
-            for idx in range(3):
-                start = idx * stride
-                end = start + segment_len
-
-                if end <= len(normalized_data):
-                    seg_data = normalized_data[start:end]
-                    seg_label = segment_label[start:end]
-
-                    file_prefix = name + f"_part{idx + 1}"
-
-                    with open(os.path.join(signal_output_path, file_prefix + "_data.pkl"), 'wb') as f1:
-                        pickle.dump(seg_data, f1)
-
-                    with open(os.path.join(segment_label_output_path, file_prefix + "_label.pkl"), 'wb') as f2:
-                        pickle.dump(seg_label, f2)
+    for split in ['train', 'test']:
+        if os.path.isdir(split):
+            process_directory(split, signal_output_path, segment_label_output_path)
 
 
-# get_labels()
+if __name__ == "__main__":
+    get_labels()
