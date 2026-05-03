@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This project performs **semantic segmentation of breathing audio signals** using a 1D U-NET + Bidirectional LSTM model. Each audio timestep is classified into one of three classes: background (0), inhalation (1), or exhalation (2). The model achieves >80% F1-score on both train and validation sets.
 
-**Dataset:** HF_Lung_V1 breathing audio dataset (WAV files + CSV annotations).
+**Dataset:** HF_Lung_V1 breathing audio dataset (WAV files + per-recording `*_label.txt` annotation files).
 
 ## Setup
 
